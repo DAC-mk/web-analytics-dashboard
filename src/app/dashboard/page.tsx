@@ -1,4 +1,3 @@
-// src/app/dashboard/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -14,14 +13,44 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, Sector
 } from 'recharts';
 
-// Analytics データ用の型を追加
+// 型定義
 interface AnalyticsData {
-  overview: any;
-  topPages: any;
-  deviceData: any;
-  referrerData: any;
-  clickEvents: any;
-  searchTerms: any;
+  overview: {
+    rows: Array<{
+      dimensionValues: Array<{value: string}>;
+      metricValues: Array<{value: string}>;
+    }>;
+  } | null;
+  topPages: {
+    rows: Array<{
+      dimensionValues: Array<{value: string}>;
+      metricValues: Array<{value: string}>;
+    }>;
+  } | null;
+  deviceData: {
+    rows: Array<{
+      dimensionValues: Array<{value: string}>;
+      metricValues: Array<{value: string}>;
+    }>;
+  } | null;
+  referrerData: {
+    rows: Array<{
+      dimensionValues: Array<{value: string}>;
+      metricValues: Array<{value: string}>;
+    }>;
+  } | null;
+  clickEvents: {
+    rows: Array<{
+      dimensionValues: Array<{value: string}>;
+      metricValues: Array<{value: string}>;
+    }>;
+  } | null;
+  searchTerms: {
+    rows: Array<{
+      dimensionValues: Array<{value: string}>;
+      metricValues: Array<{value: string}>;
+    }>;
+  } | null;
 }
 
 interface Site {
@@ -36,8 +65,6 @@ interface Site {
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#A259FF', '#FB6D3A'];
 
 export default function Dashboard() {
-  const { user, loading } = useAuth();
-  const router = useRouter();
   const [sites, setSites] = useState<Site[]>([]);
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [selectedSite, setSelectedSite] = useState<Site | null>(null);
@@ -59,6 +86,9 @@ export default function Dashboard() {
   
   // 円グラフのアクティブセクションの状態 - コンポーネントのトップレベルで宣言
   const [deviceActiveIndex, setDeviceActiveIndex] = useState(0);
+
+  const { user, loading } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
     // 認証されていない場合はログインページにリダイレクト
@@ -138,10 +168,11 @@ export default function Dashboard() {
   };
 
   // ソート関数
-  const sortData = (data: any[], key: string, direction: 'ascending' | 'descending') => {
+  const sortData = (data: Array<{dimensionValues: Array<{value: string}>; metricValues: Array<{value: string}>}>, key: string, direction: 'ascending' | 'descending') => {
     return [...data].sort((a, b) => {
       // 値の取得方法を決定（dimensionValues または metricValues）
-      let aValue, bValue;
+      let aValue: string | number;
+      let bValue: string | number;
 
       // キーに基づいて適切な値を取得
       if (key === 'date') {
@@ -171,6 +202,10 @@ export default function Dashboard() {
       } else if (key === 'sessions') {
         aValue = parseInt(a.metricValues[0].value);
         bValue = parseInt(b.metricValues[0].value);
+      } else {
+        // デフォルト
+        aValue = '';
+        bValue = '';
       }
 
       // ソート方向に応じて比較
@@ -291,7 +326,19 @@ export default function Dashboard() {
   };
   
   // アクティブな円グラフのセクション用のカスタムコンポーネント
-  const renderActiveShape = (props: any) => {
+  const renderActiveShape = (props: {
+    cx: number;
+    cy: number;
+    midAngle: number;
+    innerRadius: number;
+    outerRadius: number;
+    startAngle: number;
+    endAngle: number;
+    fill: string;
+    payload: {name: string};
+    percent: number;
+    value: number;
+  }) => {
     const RADIAN = Math.PI / 180;
     const { 
       cx, cy, midAngle, innerRadius, outerRadius, startAngle, endAngle,
@@ -456,7 +503,7 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {displayData.map((row: any, index: number) => {
+              {displayData.map((row, index) => {
                 // 日付のフォーマットを整形（YYYYMMDD → YYYY-MM-DD）
                 const rawDate = row.dimensionValues[0].value;
                 const formattedDate = `${rawDate.substring(0, 4)}-${rawDate.substring(4, 6)}-${rawDate.substring(6, 8)}`;
@@ -499,7 +546,7 @@ export default function Dashboard() {
     }
     
     // グラフ用データの整形
-    const chartData = sortedData.map((row, index) => ({
+    const chartData = sortedData.map((row) => ({
       name: row.dimensionValues[0].value,
       value: parseInt(row.metricValues[0].value)
     }));
@@ -513,7 +560,7 @@ export default function Dashboard() {
     };
     
     // 円グラフのアクティブセクション更新関数
-    const onPieEnter = (_: any, index: number) => {
+    const onPieEnter = (_: unknown, index: number) => {
       setDeviceActiveIndex(index);
     };
     
@@ -550,7 +597,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {sortedData.map((row: any, index: number) => (
+                {sortedData.map((row, index) => (
                   <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                     <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{row.dimensionValues[0].value}</td>
                     <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{row.metricValues[0].value}</td>
@@ -582,7 +629,7 @@ export default function Dashboard() {
                 </Pie>
                 <Tooltip />
                 <Legend 
-                  formatter={(value, entry, index) => chartData[index % chartData.length].name}
+                  formatter={(_value, _entry, index) => chartData[index % chartData.length].name}
                 />
               </PieChart>
             </ResponsiveContainer>
@@ -649,7 +696,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {sortedData.map((row: any, index: number) => (
+                {sortedData.map((row, index) => (
                   <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                     <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
                       {row.dimensionValues[0].value === '(direct)' ? '直接アクセス' : row.dimensionValues[0].value}
@@ -817,8 +864,8 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {displayData.map((row: any, index: number) => (
-                <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+              {displayData.map((row, rowIndex) => (
+                <tr key={rowIndex} className={rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                   <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{row.dimensionValues[0].value}</td>
                   <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{row.dimensionValues[1].value}</td>
                   <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{row.metricValues[0].value}</td>
@@ -886,7 +933,8 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
-      </header>      
+      </header>
+      
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0">
           {/* サイト選択プルダウン */}

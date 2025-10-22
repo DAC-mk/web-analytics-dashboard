@@ -1,61 +1,98 @@
-// src/lib/analytics.ts
+import { GoogleAuth } from 'google-auth-library';
 import { BetaAnalyticsDataClient } from '@google-analytics/data';
+import { credentials } from './firebase';
 
-// 期間タイプの定義
-export type DateRange = 'day' | 'week' | 'month' | 'custom';
-
-// 期間設定インターフェース
+// 日付範囲パラメータの型定義
 export interface DateRangeParams {
-  type: DateRange;
-  startDate?: string; // YYYY-MM-DD 形式 (カスタム期間用)
-  endDate?: string;   // YYYY-MM-DD 形式 (カスタム期間用)
+  type: 'day' | 'week' | 'month' | 'custom';
+  startDate?: string;
+  endDate?: string;
 }
 
-// サービスアカウントキーを使用して認証
+// AnalyticsのAPIレスポンス型
+interface AnalyticsRow {
+  dimensionValues: Array<{value: string}>;
+  metricValues: Array<{value: string}>;
+}
+
+interface AnalyticsResponse {
+  rows: AnalyticsRow[];
+  rowCount: number;
+  minimums?: AnalyticsRow[];
+  maximums?: AnalyticsRow[];
+  totals?: AnalyticsRow[];
+  metricHeaders: Array<{name: string; type: string}>;
+  dimensionHeaders: Array<{name: string}>;
+}
+
+interface ClickEventData {
+  elementId: string;
+  elementText: string;
+  pageTitle: string;
+  pagePath: string;
+  timestamp: string;
+}
+
+// Google Analytics Dataクライアントの初期化
 const analyticsDataClient = new BetaAnalyticsDataClient({
-  keyFilename: process.env.GA_KEY_PATH,
+  auth: new GoogleAuth({
+    credentials: credentials,
+    scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
+  }),
 });
 
-// 期間範囲の計算
-export const calculateDateRange = (params: DateRangeParams): { startDate: string; endDate: string } => {
-  let startDate: string;
-  let endDate: string = 'today';
-  
-  switch(params.type) {
-    case 'day':
-      startDate = 'yesterday';
-      break;
-      
-    case 'week':
-      startDate = '7daysAgo';
-      break;
-      
-    case 'month':
-      startDate = '30daysAgo';
-      break;
-      
-    case 'custom':
-      if (params.startDate && params.endDate) {
-        startDate = params.startDate;
-        endDate = params.endDate;
-      } else {
-        // デフォルトは過去30日
-        startDate = '30daysAgo';
-      }
-      break;
-      
-    default:
-      // デフォルトは過去7日
-      startDate = '7daysAgo';
-  }
-  
-  return { startDate, endDate };
-};
+// 指定した日付範囲に基づいて適切な日付範囲を計算
+export function getDateRangeFromParams(params: DateRangeParams): { startDate: string; endDate: string } {
+  const now = new Date();
+  let startDate: Date;
+  let endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-// 基本的なレポートを取得する関数
-export async function getAnalyticsReport(propertyId: string, dateParams: DateRangeParams) {
+  if (params.type === 'custom' && params.startDate && params.endDate) {
+    return {
+      startDate: params.startDate,
+      endDate: params.endDate,
+    };
+  }
+
+  switch (params.type) {
+    case 'day':
+      // 当日のみ
+      startDate = new Date(endDate);
+      break;
+    case 'week':
+      // 過去7日間
+      startDate = new Date(endDate);
+      startDate.setDate(startDate.getDate() - 6);
+      break;
+    case 'month':
+      // 過去30日間
+      startDate = new Date(endDate);
+      startDate.setDate(startDate.getDate() - 29);
+      break;
+    default:
+      // デフォルトは過去7日間
+      startDate = new Date(endDate);
+      startDate.setDate(startDate.getDate() - 6);
+  }
+
+  // 'YYYY-MM-DD'形式で返す
+  const formatDate = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  return {
+    startDate: formatDate(startDate),
+    endDate: formatDate(endDate),
+  };
+}
+
+// 総アクセス概要データの取得
+export async function getOverviewData(propertyId: string, dateRange: DateRangeParams): Promise<AnalyticsResponse | null> {
   try {
-    const { startDate, endDate } = calculateDateRange(dateParams);
+    const { startDate, endDate } = getDateRangeFromParams(dateRange);
     
     const [response] = await analyticsDataClient.runReport({
       property: `properties/${propertyId}`,
@@ -77,23 +114,28 @@ export async function getAnalyticsReport(propertyId: string, dateParams: DateRan
         {
           name: 'totalUsers',
         },
+      ],
+      orderBys: [
         {
-          name: 'sessions',
+          dimension: {
+            dimensionName: 'date',
+          },
+          desc: false,
         },
       ],
     });
     
     return response;
   } catch (error) {
-    console.error('Error fetching analytics data:', error);
-    throw error;
+    console.error('Error fetching overview data:', error);
+    return null;
   }
 }
 
-// ページ別アクセスデータ取得
-export async function getTopPagesData(propertyId: string, dateParams: DateRangeParams, limit = 10) {
+// 人気ページのデータ取得
+export async function getTopPagesData(propertyId: string, dateRange: DateRangeParams): Promise<AnalyticsResponse | null> {
   try {
-    const { startDate, endDate } = calculateDateRange(dateParams);
+    const { startDate, endDate } = getDateRangeFromParams(dateRange);
     
     const [response] = await analyticsDataClient.runReport({
       property: `properties/${propertyId}`,
@@ -127,20 +169,20 @@ export async function getTopPagesData(propertyId: string, dateParams: DateRangeP
           desc: true,
         },
       ],
-      limit,
+      limit: 50,
     });
     
     return response;
   } catch (error) {
     console.error('Error fetching top pages data:', error);
-    throw error;
+    return null;
   }
 }
 
-// デバイスタイプ別データ取得
-export async function getDeviceData(propertyId: string, dateParams: DateRangeParams) {
+// デバイス別データの取得
+export async function getDeviceData(propertyId: string, dateRange: DateRangeParams): Promise<AnalyticsResponse | null> {
   try {
-    const { startDate, endDate } = calculateDateRange(dateParams);
+    const { startDate, endDate } = getDateRangeFromParams(dateRange);
     
     const [response] = await analyticsDataClient.runReport({
       property: `properties/${propertyId}`,
@@ -160,19 +202,27 @@ export async function getDeviceData(propertyId: string, dateParams: DateRangePar
           name: 'totalUsers',
         },
       ],
+      orderBys: [
+        {
+          metric: {
+            metricName: 'totalUsers',
+          },
+          desc: true,
+        },
+      ],
     });
     
     return response;
   } catch (error) {
     console.error('Error fetching device data:', error);
-    throw error;
+    return null;
   }
 }
 
-// 参照元データ取得
-export async function getReferrerData(propertyId: string, dateParams: DateRangeParams, limit = 10) {
+// 参照元データの取得
+export async function getReferrerData(propertyId: string, dateRange: DateRangeParams): Promise<AnalyticsResponse | null> {
   try {
-    const { startDate, endDate } = calculateDateRange(dateParams);
+    const { startDate, endDate } = getDateRangeFromParams(dateRange);
     
     const [response] = await analyticsDataClient.runReport({
       property: `properties/${propertyId}`,
@@ -200,22 +250,21 @@ export async function getReferrerData(propertyId: string, dateParams: DateRangeP
           desc: true,
         },
       ],
-      limit,
+      limit: 20,
     });
     
     return response;
   } catch (error) {
     console.error('Error fetching referrer data:', error);
-    throw error;
+    return null;
   }
 }
 
-// クリックイベントデータ取得
-export async function getClickEventsData(propertyId: string, dateParams: DateRangeParams, limit = 10) {
+// クリックイベントデータの取得
+export async function getClickEventData(propertyId: string, dateRange: DateRangeParams): Promise<AnalyticsResponse | null> {
   try {
-    const { startDate, endDate } = calculateDateRange(dateParams);
+    const { startDate, endDate } = getDateRangeFromParams(dateRange);
     
-    // クリックイベントが設定されている場合のみ機能します
     const [response] = await analyticsDataClient.runReport({
       property: `properties/${propertyId}`,
       dateRanges: [
@@ -228,6 +277,18 @@ export async function getClickEventsData(propertyId: string, dateParams: DateRan
         {
           name: 'eventName',
         },
+        {
+          name: 'customEvent:element_id',
+        },
+        {
+          name: 'customEvent:element_text',
+        },
+        {
+          name: 'pageTitle',
+        },
+        {
+          name: 'pagePath',
+        },
       ],
       metrics: [
         {
@@ -238,27 +299,34 @@ export async function getClickEventsData(propertyId: string, dateParams: DateRan
         filter: {
           fieldName: 'eventName',
           stringFilter: {
-            matchType: 'BEGINS_WITH',
             value: 'click',
+            matchType: 'EXACT',
           },
         },
       },
-      limit,
+      orderBys: [
+        {
+          metric: {
+            metricName: 'eventCount',
+          },
+          desc: true,
+        },
+      ],
+      limit: 50,
     });
     
     return response;
   } catch (error) {
-    console.error('Error fetching click events data:', error);
-    throw error;
+    console.error('Error fetching click event data:', error);
+    return null;
   }
 }
 
-// 検索キーワードデータ取得
-export async function getSearchTermsData(propertyId: string, dateParams: DateRangeParams, limit = 10) {
+// 検索ワードデータの取得
+export async function getSearchTermData(propertyId: string, dateRange: DateRangeParams): Promise<AnalyticsResponse | null> {
   try {
-    const { startDate, endDate } = calculateDateRange(dateParams);
+    const { startDate, endDate } = getDateRangeFromParams(dateRange);
     
-    // 内部検索キーワードの取得（設定されている場合のみ機能します）
     const [response] = await analyticsDataClient.runReport({
       property: `properties/${propertyId}`,
       dateRanges: [
@@ -269,60 +337,62 @@ export async function getSearchTermsData(propertyId: string, dateParams: DateRan
       ],
       dimensions: [
         {
-          name: 'searchTerm',
+          name: 'sessionGoogleAdsKeyword',
         },
       ],
       metrics: [
         {
-          name: 'eventCount',
+          name: 'sessions',
         },
       ],
       orderBys: [
         {
           metric: {
-            metricName: 'eventCount',
+            metricName: 'sessions',
           },
           desc: true,
         },
       ],
-      limit,
+      limit: 20,
     });
     
     return response;
   } catch (error) {
-    console.error('Error fetching search terms data:', error);
-    throw error;
+    console.error('Error fetching search term data:', error);
+    return null;
   }
 }
 
-// すべてのサイト情報を一括取得する総合関数
-export async function getSiteAnalyticsData(propertyId: string, dateParams: DateRangeParams) {
+// GA4にクリックイベントを送信する関数
+export function trackClick(elementId: string, elementText: string): void {
+  // window.gtag が定義されていることを確認
+  if (typeof window !== 'undefined' && window.gtag) {
+    window.gtag('event', 'click', {
+      element_id: elementId,
+      element_text: elementText,
+    });
+  }
+}
+
+// すべてのアナリティクスデータを一度に取得
+export async function getAllAnalyticsData(propertyId: string, dateRange: DateRangeParams) {
   try {
-    // 並列でデータ取得
-    const [overview, topPages, deviceData, referrerData] = await Promise.all([
-      getAnalyticsReport(propertyId, dateParams),
-      getTopPagesData(propertyId, dateParams),
-      getDeviceData(propertyId, dateParams),
-      getReferrerData(propertyId, dateParams),
+    const [
+      overview,
+      topPages,
+      deviceData,
+      referrerData,
+      clickEvents,
+      searchTerms,
+    ] = await Promise.all([
+      getOverviewData(propertyId, dateRange),
+      getTopPagesData(propertyId, dateRange),
+      getDeviceData(propertyId, dateRange),
+      getReferrerData(propertyId, dateRange),
+      getClickEventData(propertyId, dateRange),
+      getSearchTermData(propertyId, dateRange),
     ]);
     
-    // クリックイベントとキーワード検索は設定によって取得できない場合があるので分けて取得
-    let clickEvents = null;
-    let searchTerms = null;
-    
-    try {
-      clickEvents = await getClickEventsData(propertyId, dateParams);
-    } catch (error) {
-      console.log('Click events data not available or not configured');
-    }
-    
-    try {
-      searchTerms = await getSearchTermsData(propertyId, dateParams);
-    } catch (error) {
-      console.log('Search terms data not available or not configured');
-    }
-    
-    // すべてのデータを結合
     return {
       overview,
       topPages,
@@ -331,9 +401,15 @@ export async function getSiteAnalyticsData(propertyId: string, dateParams: DateR
       clickEvents,
       searchTerms,
     };
-    
   } catch (error) {
-    console.error('Error fetching site analytics data:', error);
+    console.error('Error fetching all analytics data:', error);
     throw error;
+  }
+}
+
+// window.gtagの型を拡張
+declare global {
+  interface Window {
+    gtag?: (command: string, action: string, params: Record<string, unknown>) => void;
   }
 }

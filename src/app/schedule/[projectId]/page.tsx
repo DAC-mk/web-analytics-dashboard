@@ -14,14 +14,14 @@ export default function ProjectSchedulePage() {
   const { projectId } = useParams();
   const { user } = useAuth(); // userRoleは使わない
   const userRole = 'admin'; // 強制的に管理者権限を設定
-  const [project, setProject] = useState(null);
+  const [project, setProject] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selectedStatus, setSelectedStatus] = useState('');
   const [deadline, setDeadline] = useState('');
   const isAdmin = true; // 強制的にtrue設定
   
   // ステータスオプション（フェーズごと）
-  const statusOptions = {
+  const statusOptions: Record<ProjectPhase, string[]> = {
     design: ['デザイン作成中', 'デザインレビュー中', 'デザイン修正中', 'デザイン完了'],
     coding: ['コーディング中', 'レスポンシブ対応中', 'コーディング修正中', 'コーディング完了'],
     testing: ['内部テスト中', 'クライアントレビュー中', '修正対応中', 'テスト完了'],
@@ -37,7 +37,7 @@ export default function ProjectSchedulePage() {
         setLoading(true);
         
         // プロジェクト基本情報取得
-        const projectRef = doc(db, 'projects', projectId);
+        const projectRef = doc(db, 'projects', projectId as string);
         const projectSnap = await getDoc(projectRef);
         
         if (!projectSnap.exists()) {
@@ -50,7 +50,7 @@ export default function ProjectSchedulePage() {
         };
         
         // スケジュール情報取得
-        const scheduleData = await getProjectSchedule(projectId);
+        const scheduleData = await getProjectSchedule(projectId as string);
         
         // スケジュールデータがなければ初期値を設定
         if (!scheduleData && isAdmin) {
@@ -91,7 +91,7 @@ export default function ProjectSchedulePage() {
     setSelectedStatus(newStatus);
     
     try {
-      await updateProjectPhase(projectId, phase, newStatus, user.email);
+      await updateProjectPhase(projectId as string, phase, newStatus, user.email || 'unknown');
       
       // 画面表示を更新
       setProject(prev => ({
@@ -108,7 +108,7 @@ export default function ProjectSchedulePage() {
     }
   };
   
-  const handleStatusChange = async (e) => {
+  const handleStatusChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     if (!isAdmin || !project || !user) return;
     
     const newStatus = e.target.value;
@@ -116,10 +116,10 @@ export default function ProjectSchedulePage() {
     
     try {
       await updateProjectPhase(
-        projectId, 
+        projectId as string, 
         project.schedule.currentPhase, 
         newStatus, 
-        user.email
+        user.email || 'unknown'
       );
       
       // 画面表示を更新
@@ -135,14 +135,14 @@ export default function ProjectSchedulePage() {
     }
   };
   
-  const handleDeadlineChange = async (e) => {
+  const handleDeadlineChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!isAdmin || !project || !user) return;
     
     const newDeadline = e.target.value;
     setDeadline(newDeadline);
     
     try {
-      await updateProjectDeadline(projectId, newDeadline, user.email);
+      await updateProjectDeadline(projectId as string, newDeadline, user.email || 'unknown');
       
       // 画面表示を更新
       setProject(prev => ({
@@ -295,8 +295,8 @@ export default function ProjectSchedulePage() {
   );
 }
 
-function getPhaseLabel(phase) {
-  const labels = {
+function getPhaseLabel(phase: string): string {
+  const labels: Record<string, string> = {
     design: 'デザイン',
     coding: 'コーディング',
     testing: 'テスト・調整',
